@@ -1,0 +1,81 @@
+# ============================================
+# INDO-FACT AUTOMATION ENGINE - CONFIG
+# ============================================
+
+# --- Video Output Settings ---
+video:
+  max_clip_duration: 4.0 # Detik. Jika audio > 4 detik, ganti visual
+  min_clip_duration: 1.5 # Detik. Agar tidak terlalu cepat
+  format: "9:16" # "9:16" (Shorts/TikTok) atau "16:9" (YouTube)
+  resolution:
+    width: 1080
+    height: 1920
+  fps: 30
+  background_music_volume: -20 # dB untuk audio ducking
+
+# --- Language & Style ---
+content:
+  language: "id" # Indonesia
+  style: "casual" # casual/formal/gaul
+  max_script_duration: 60 # Detik, target durasi video
+
+# --- TTS Settings ---
+tts:
+  use_model: "edge_tts" # "xtts_v2" (Kaggle Trained) atau "edge_tts" (Fast Fallback)
+  voice_id: "id-ID-ArdiNeural" # Voice untuk Edge TTS
+  xtts_model_path: "models/my_voice.pth"
+  sample_rate: 22050
+
+# --- LLM Settings ---
+llm:
+  provider: "ollama"
+  model: "gemma:2b"
+  temperature: 0.7
+  max_tokens: 2048
+
+# --- Scraping Settings ---
+scraper:
+  # Sumber konten (prioritas dari atas ke bawah)
+  sources:
+    - "wikipedia"    # ⭐ Utama: Gratis, tanpa API key
+    - "rss"          # RSS feeds berita Indonesia
+    - "reddit"       # Opsional: Butuh API key
+  
+  # Wikipedia settings
+  wikipedia:
+    language: "id"   # Wikipedia Indonesia
+    min_content_length: 100
+  
+  # RSS Feeds (gratis, tanpa API key)
+  rss_feeds:
+    sains:
+      - "https://www.liputan6.com/feed/rss2?channel=tekno"
+    teknologi:
+      - "https://www.liputan6.com/feed/rss2?channel=tekno"
+    umum:
+      - "https://www.liputan6.com/feed/rss2"
+  
+  # Reddit settings (OPSIONAL - butuh API key)
+  subreddits:
+    - "todayilearned"
+    - "Showerthoughts"
+    - "science"
+  post_limit: 10
+  time_filter: "day" # hour/day/week/month/year/all
+
+# --- Asset Sources ---
+assets:
+  primary_source: "pexels" # pexels/pixabay
+  cache_enabled: true
+  max_download_retries: 3
+  preferred_orientation: "portrait" # portrait/landscape/any
+
+# --- Paths ---
+paths:
+  data_dir: "data"
+  input_scripts: "data/input_scripts"
+  temp_audio: "data/temp_audio"
+  temp_video: "data/temp_video"
+  output: "data/output"
+  models: "models"
+  cache: "data/cache"

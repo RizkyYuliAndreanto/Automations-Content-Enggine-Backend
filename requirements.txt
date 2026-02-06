@@ -1,0 +1,38 @@
+# ============================================
+# INDO-FACT AUTOMATION ENGINE - DEPENDENCIES
+# ============================================
+
+# --- Core Backend ---
+python-dotenv==1.0.1        # Load .env variables
+pydantic==2.6.0             # Data validation & settings management
+pydantic-settings==2.1.0
+PyYAML==6.0.1               # YAML config parsing
+requests==2.31.0            # HTTP Client
+aiohttp==3.9.3              # Async HTTP Client
+aiofiles==23.2.1            # Async file handling
+
+# --- Scraping ---
+praw==7.7.1                 # Reddit API Wrapper (OPSIONAL)
+trafilatura==1.6.3          # Web scraping (clean text extraction)
+beautifulsoup4==4.12.3      # HTML parsing fallback
+lxml_html_clean             # Required by trafilatura
+youtube-transcript-api==0.6.2  # YouTube transcript/subtitle scraping (GRATIS)
+yt-dlp                      # YouTube video info extraction
+
+# --- LLM ---
+# ollama dijalankan terpisah (ollama serve)
+
+# --- TTS ---
+edge-tts==6.1.9             # Microsoft Edge TTS (free, cloud-based)
+
+# --- Media Processing ---
+moviepy==1.0.3              # Video editing wrapper
+imageio-ffmpeg==0.4.9       # FFmpeg binary
+imageio==2.34.0             # Image I/O
+pillow==10.2.0              # Image processing
+numpy==1.26.3               # Numerical operations
+
+# --- Utilities ---
+colorama==0.4.6             # Colored terminal output
+tqdm==4.66.1                # Progress bars
+tenacity==8.2.3             # Retry logic
