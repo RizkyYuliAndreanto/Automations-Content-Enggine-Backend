@@ -87,12 +87,25 @@ TUGAS:
 1. Ubah teks input menjadi narasi video pendek (maksimal {self.max_duration} detik)
 2. Gunakan bahasa Indonesia yang {style}
 3. Bagi menjadi beberapa segment (kalimat)
-4. Untuk setiap kalimat, buat visual_keyword dalam bahasa Inggris untuk search stock footage
+4. Untuk setiap kalimat, ekstrak visual_keyword LANGSUNG DARI KALIMAT (kata kunci utama yang disebutkan)
 
-ATURAN:
-- Mulai dengan hook menarik (pertanyaan/fakta mengejutkan)
-- Setiap segment harus bisa berdiri sendiri sebagai kalimat utuh
-- visual_keyword harus spesifik dan visual (hindari kata abstrak)
+ATURAN PENTING - JANGAN BUAT SEGMENT UNTUK:
+- JANGAN buat segment dengan text "Judul" atau "Konten" atau "Sumber"
+- JANGAN buat segment yang hanya berisi label metadata
+- LANGSUNG mulai dengan narasi konten faktual
+- Contoh SALAH: "Judul: Piramida Mesir" - JANGAN BUAT INI!
+- Contoh BENAR: "Piramida Mesir adalah bangunan kuno yang megah"
+
+ATURAN VISUAL KEYWORD (CRITICAL):
+- EKSTRAK kata kunci LANGSUNG dari kalimat narasi
+- Contoh: "Mesir adalah negara di Afrika" → visual_keyword: "Mesir"
+- Contoh: "Piramida Giza terletak di perbatasan" → visual_keyword: "Piramida Giza perbatasan"
+- Contoh: "Teleskop Hubble mengorbit Bumi" → visual_keyword: "Teleskop Hubble orbit Bumi"
+- JANGAN buat keyword generic seperti "country", "building", "space" - gunakan NAMA SPESIFIK dari narasi
+- Keyword HARUS dalam bahasa yang sama dengan objek (Mesir, Piramida, Indonesia, dll)
+- Setiap visual_keyword harus SINKRON dengan apa yang dibicarakan di kalimat
+- SETIAP SEGMENT HARUS PUNYA KEYWORD YANG BERBEDA - JANGAN ADA DUPLIKAT!
+- Jika topik sama, tambahkan detail berbeda (misal: "Mesir panorama", "Mesir piramida", "Mesir sungai nil")
 - Estimasi durasi: ~150 kata per menit (2.5 kata per detik)
 - Total durasi semua segment maksimal {self.max_duration} detik
 
@@ -101,7 +114,7 @@ OUTPUT FORMAT (HARUS JSON VALID):
   "segments": [
     {{
       "text": "Kalimat narasi dalam Bahasa Indonesia",
-      "visual_keyword": "english keyword for stock footage search",
+      "visual_keyword": "kata kunci spesifik yang DISEBUTKAN dalam kalimat (extract dari text)",
       "duration_estimate": 3.5
     }}
   ]
@@ -187,9 +200,19 @@ Output dalam format JSON sesuai instruksi."""
     def _validate_and_fix_segments(self, data: Dict) -> List[Segment]:
         """
         Validate dan fix segments dari LLM response.
+        Includes deduplication of visual keywords.
         """
         segments = []
         raw_segments = data.get("segments", [])
+        
+        # Track used keywords to prevent duplicates
+        used_keywords = {}  # keyword -> count
+        
+        # Metadata labels yang harus difilter dari narasi
+        metadata_labels = [
+            "judul", "konten", "sumber", "title", "content", "source",
+            "judul video", "konten video", "timer", "logo"
+        ]
         
         for seg in raw_segments:
             text = seg.get("text", "").strip()
@@ -199,11 +222,50 @@ Output dalam format JSON sesuai instruksi."""
             if not text:
                 continue
             
+            # FILTER: Skip segments yang hanya berisi metadata labels
+            text_lower = text.lower()
+            is_metadata = False
+            for label in metadata_labels:
+                # Skip jika text dimulai dengan label atau HANYA berisi label
+                if text_lower.startswith(label + ":") or text_lower.startswith(label + " :"):
+                    is_metadata = True
+                    break
+                if text_lower == label or text_lower.rstrip(".!?") == label:
+                    is_metadata = True
+                    break
+            
+            if is_metadata:
+                print(f"  ⚠️ Skipping metadata segment: '{text[:30]}...'")
+                continue
+            
             # Fix keyword jika kosong
             if not keyword:
                 # Extract noun dari text sebagai fallback
                 words = text.split()
                 keyword = " ".join(words[:3]) if len(words) > 3 else text
+            
+            # DEDUPLICATION: Make keyword unique if already used
+            keyword_lower = keyword.lower()
+            if keyword_lower in used_keywords:
+                used_keywords[keyword_lower] += 1
+                count = used_keywords[keyword_lower]
+                
+                # Try to extract additional context from text
+                text_words = text.split()
+                extra_words = [w for w in text_words if w.lower() not in keyword_lower and len(w) > 2]
+                
+                if extra_words:
+                    # Add context from text to make it unique
+                    keyword = f"{keyword} {extra_words[0]}"
+                else:
+                    # Add variation suffixes
+                    variations = ["detail", "closeup", "wide", "panorama", "scene", "view"]
+                    if count <= len(variations):
+                        keyword = f"{keyword} {variations[count-1]}"
+                    else:
+                        keyword = f"{keyword} {count}"
+            else:
+                used_keywords[keyword_lower] = 1
             
             # Validate duration
             if not isinstance(duration, (int, float)):

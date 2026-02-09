@@ -43,10 +43,11 @@ class ClipPart:
     """Represents a part of a video clip for assembly"""
     video_path: str
     audio_path: str
-    start_time: float  # Start dalam video source
+    start_time: float  # Start dalam audio/timeline
     duration: float
     text: str
     is_split: bool = False  # True jika ini hasil split dari segment panjang
+    video_start: float = 0.0  # Start position dalam source video
 
 
 class StudioEditor:
@@ -66,8 +67,63 @@ class StudioEditor:
         self.bg_music_volume = config.bg_music_volume
         self.output_dir = config.get_path("output")
         
+        # Track used video segments to prevent repetition
+        self._used_video_segments = {}  # {video_path: [used_time_ranges]}
+        
         # Ensure output directory exists
         self.output_dir.mkdir(parents=True, exist_ok=True)
+    
+    def _reset_used_segments(self):
+        """Reset tracking for new video render"""
+        self._used_video_segments = {}
+    
+    def _get_available_segment(self, video_path: str, video_duration: float, needed_duration: float) -> Tuple[float, float]:
+        """
+        Get an available (unused) segment from a video.
+        
+        Args:
+            video_path: Path to video file
+            video_duration: Total video duration
+            needed_duration: Duration needed for this clip
+            
+        Returns:
+            (start_time, actual_duration) - may be less than needed if video is short
+        """
+        if video_path not in self._used_video_segments:
+            self._used_video_segments[video_path] = []
+        
+        used_ranges = self._used_video_segments[video_path]
+        
+        # Try to find an unused segment
+        potential_starts = [0.0]
+        
+        # Add potential start points after each used segment
+        for start, end in sorted(used_ranges):
+            if end < video_duration:
+                potential_starts.append(end)
+        
+        # Find a segment that doesn't overlap with used ones
+        for start in potential_starts:
+            end = min(start + needed_duration, video_duration)
+            actual_duration = end - start
+            
+            if actual_duration < 0.5:  # Too short, skip
+                continue
+            
+            # Check for overlap with used segments
+            overlaps = False
+            for used_start, used_end in used_ranges:
+                if not (end <= used_start or start >= used_end):
+                    overlaps = True
+                    break
+            
+            if not overlaps:
+                # Mark this segment as used
+                self._used_video_segments[video_path].append((start, end))
+                return start, actual_duration
+        
+        # All segments used - return from beginning but don't track (allow reuse as last resort)
+        return 0.0, min(needed_duration, video_duration)
     
     def _plan_clip_splits(
         self,
@@ -77,17 +133,23 @@ class StudioEditor:
     ) -> List[ClipPart]:
         """
         Plan bagaimana clip akan di-split berdasarkan durasi.
+        OPTIMIZED: Prevents video repetition.
         
         CRITICAL ALGORITHM:
         1. Untuk setiap segment, cek durasi audio actual
         2. Jika audio > MAX_CLIP_DURATION:
            - Split menjadi multiple visual clips
-           - Gunakan video asset berikutnya atau loop
+           - Gunakan video asset berikutnya atau segment berbeda
         3. Jika audio < MIN_CLIP_DURATION:
            - Extend ke minimum atau gunakan slow motion
         """
+        # Reset used segment tracking for this render
+        self._reset_used_segments()
+        
         clip_parts = []
-        video_index = 0
+        
+        # Build list of all valid videos for fallback pool
+        all_valid_videos = [v for v in video_assets if v and v.exists()]
         
         for i, (segment, audio) in enumerate(zip(segments, audio_segments)):
             audio_duration = audio.duration
@@ -111,30 +173,62 @@ class StudioEditor:
                     audio_path=audio.file_path,
                     primary_video=current_video,
                     fallback_videos=video_assets[i+1:] if i+1 < len(video_assets) else [],
-                    text=segment.text
+                    text=segment.text,
+                    all_video_assets=all_valid_videos
                 )
                 clip_parts.extend(parts)
                 
             elif audio_duration < self.min_clip_duration:
                 # EXTEND MODE: Audio terlalu pendek
+                # Use segment tracking for consistency
+                try:
+                    from moviepy.editor import VideoFileClip
+                    temp_clip = VideoFileClip(current_video.file_path)
+                    video_duration = temp_clip.duration
+                    temp_clip.close()
+                except:
+                    video_duration = current_video.duration or 10.0
+                
+                segment_start, _ = self._get_available_segment(
+                    current_video.file_path,
+                    video_duration,
+                    self.min_clip_duration
+                )
+                
                 clip_parts.append(ClipPart(
                     video_path=current_video.file_path,
                     audio_path=audio.file_path,
                     start_time=0,
                     duration=self.min_clip_duration,  # Extend ke minimum
                     text=segment.text,
-                    is_split=False
+                    is_split=False,
+                    video_start=segment_start
                 ))
                 
             else:
                 # NORMAL MODE: Durasi dalam range
+                try:
+                    from moviepy.editor import VideoFileClip
+                    temp_clip = VideoFileClip(current_video.file_path)
+                    video_duration = temp_clip.duration
+                    temp_clip.close()
+                except:
+                    video_duration = current_video.duration or 10.0
+                
+                segment_start, _ = self._get_available_segment(
+                    current_video.file_path,
+                    video_duration,
+                    audio_duration
+                )
+                
                 clip_parts.append(ClipPart(
                     video_path=current_video.file_path,
                     audio_path=audio.file_path,
                     start_time=0,
                     duration=audio_duration,
                     text=segment.text,
-                    is_split=False
+                    is_split=False,
+                    video_start=segment_start
                 ))
         
         return clip_parts
@@ -145,21 +239,51 @@ class StudioEditor:
         audio_path: str,
         primary_video: VideoAsset,
         fallback_videos: List[VideoAsset],
-        text: str
+        text: str,
+        all_video_assets: List[VideoAsset] = None
     ) -> List[ClipPart]:
         """
         Split satu segment audio menjadi multiple visual clips.
+        OPTIMIZED: Prevents video repetition by using different segments.
         
         Contoh: Audio 10 detik dengan MAX_CLIP_DURATION 4 detik
-        -> 3 visual clips (4s + 4s + 2s)
+        -> 3 visual clips dari BERBEDA video atau segment berbeda
         """
         parts = []
         remaining_duration = audio_duration
         time_offset = 0
-        video_pool = [primary_video] + [v for v in fallback_videos if v and v.exists()]
-        video_idx = 0
         
-        while remaining_duration > 0:
+        # Build video pool - prioritize unused videos
+        video_pool = []
+        seen_paths = set()
+        
+        # Add primary first
+        if primary_video and primary_video.exists():
+            video_pool.append(primary_video)
+            seen_paths.add(primary_video.file_path)
+        
+        # Add fallbacks
+        for v in fallback_videos:
+            if v and v.exists() and v.file_path not in seen_paths:
+                video_pool.append(v)
+                seen_paths.add(v.file_path)
+        
+        # Add all assets as emergency pool
+        if all_video_assets:
+            for v in all_video_assets:
+                if v and v.exists() and v.file_path not in seen_paths:
+                    video_pool.append(v)
+                    seen_paths.add(v.file_path)
+        
+        if not video_pool:
+            print("  ⚠️ No videos available for split clips")
+            return parts
+        
+        video_idx = 0
+        clips_created = 0
+        max_clips = 10  # Safety limit
+        
+        while remaining_duration > 0 and clips_created < max_clips:
             # Durasi clip ini
             clip_duration = min(self.max_clip_duration, remaining_duration)
             
@@ -167,21 +291,62 @@ class StudioEditor:
             if clip_duration < self.min_clip_duration and remaining_duration > self.min_clip_duration:
                 clip_duration = self.min_clip_duration
             
-            # Pilih video (cycle through pool)
-            current_video = video_pool[video_idx % len(video_pool)]
-            video_idx += 1
+            # Try to find an unused video/segment
+            found_segment = False
+            attempts = 0
+            max_attempts = len(video_pool) * 2
             
-            parts.append(ClipPart(
-                video_path=current_video.file_path,
-                audio_path=audio_path,
-                start_time=time_offset,
-                duration=clip_duration,
-                text=text,
-                is_split=True
-            ))
+            while not found_segment and attempts < max_attempts:
+                current_video = video_pool[video_idx % len(video_pool)]
+                video_idx += 1
+                attempts += 1
+                
+                # Get video duration
+                try:
+                    from moviepy.editor import VideoFileClip
+                    temp_clip = VideoFileClip(current_video.file_path)
+                    video_duration = temp_clip.duration
+                    temp_clip.close()
+                except:
+                    video_duration = current_video.duration or 10.0
+                
+                # Try to get an unused segment from this video
+                segment_start, actual_duration = self._get_available_segment(
+                    current_video.file_path,
+                    video_duration,
+                    clip_duration
+                )
+                
+                if actual_duration >= 0.5:
+                    found_segment = True
+                    
+                    parts.append(ClipPart(
+                        video_path=current_video.file_path,
+                        audio_path=audio_path,
+                        start_time=time_offset,
+                        duration=min(actual_duration, clip_duration),
+                        text=text,
+                        is_split=True,
+                        video_start=segment_start  # Track where in video to start
+                    ))
+                    
+                    clip_duration = min(actual_duration, clip_duration)
+            
+            if not found_segment:
+                # Fallback: just use first video from beginning
+                parts.append(ClipPart(
+                    video_path=video_pool[0].file_path,
+                    audio_path=audio_path,
+                    start_time=time_offset,
+                    duration=clip_duration,
+                    text=text,
+                    is_split=True,
+                    video_start=0
+                ))
             
             time_offset += clip_duration
             remaining_duration -= clip_duration
+            clips_created += 1
         
         return parts
     
@@ -189,24 +354,49 @@ class StudioEditor:
         self,
         video_path: str,
         duration: float,
-        start_time: float = 0
+        video_start: float = 0
     ) -> VideoFileClip:
         """
         Prepare video clip dengan resize dan crop untuk fit target resolution.
+        Uses video_start to extract different segments from same video.
         """
         target_w, target_h = self.video_resolution
         
         clip = VideoFileClip(video_path)
         
-        # Handle durasi
-        if clip.duration < duration:
-            # Loop video jika lebih pendek
-            n_loops = int(duration / clip.duration) + 1
-            clips = [clip] * n_loops
-            clip = concatenate_videoclips(clips)
+        # Calculate end position
+        video_end = video_start + duration
         
-        # Subclip ke durasi yang dibutuhkan
-        clip = clip.subclip(0, duration)
+        # Handle if start position is beyond video duration
+        if video_start >= clip.duration:
+            video_start = 0  # Reset to beginning
+            video_end = duration
+        
+        # Handle durasi - check if we need to loop
+        if video_end > clip.duration:
+            # Need to loop or extend
+            available_duration = clip.duration - video_start
+            
+            if available_duration < 0.5:
+                # Start from beginning
+                video_start = 0
+                available_duration = clip.duration
+            
+            if duration > available_duration:
+                # Extract what we have from start position
+                if video_start > 0 and video_start < clip.duration:
+                    clip = clip.subclip(video_start, clip.duration)
+                
+                # Loop to fill remaining duration
+                n_loops = int(duration / clip.duration) + 1
+                clips = [clip] * n_loops
+                clip = concatenate_videoclips(clips)
+                clip = clip.subclip(0, duration)
+            else:
+                clip = clip.subclip(video_start, video_start + duration)
+        else:
+            # Normal subclip from video_start
+            clip = clip.subclip(video_start, video_end)
         
         # Resize dan crop untuk fit target aspect ratio
         clip_w, clip_h = clip.size
@@ -316,14 +506,14 @@ class StudioEditor:
         current_time = 0
         
         for i, part in enumerate(clip_parts):
-            print(f"  [{i+1}/{len(clip_parts)}] Processing: {part.duration:.2f}s...")
+            print(f"  [{i+1}/{len(clip_parts)}] Processing: {part.duration:.2f}s from video offset {part.video_start:.1f}s...")
             
             try:
-                # Prepare video
+                # Prepare video - use video_start for where to begin in source video
                 video_clip = self._prepare_video_clip(
                     part.video_path,
                     part.duration,
-                    part.start_time
+                    part.video_start  # Use video_start, not start_time
                 )
                 
                 # Add subtitle if enabled

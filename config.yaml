@@ -22,7 +22,8 @@ content:
 # --- TTS Settings ---
 tts:
   use_model: "edge_tts" # "xtts_v2" (Kaggle Trained) atau "edge_tts" (Fast Fallback)
-  voice_id: "id-ID-ArdiNeural" # Voice untuk Edge TTS
+  voice_id: "id-ID-GadisNeural" # Voice untuk Edge TTS (Female, natural Indonesian)
+  kaggle_voice: "ardi" # Voice untuk Kaggle Edge TTS (ardi=male, gadis=female)
   xtts_model_path: "models/my_voice.pth"
   sample_rate: 22050
 
@@ -37,15 +38,15 @@ llm:
 scraper:
   # Sumber konten (prioritas dari atas ke bawah)
   sources:
-    - "wikipedia"    # ⭐ Utama: Gratis, tanpa API key
-    - "rss"          # RSS feeds berita Indonesia
-    - "reddit"       # Opsional: Butuh API key
-  
+    - "wikipedia" # ⭐ Utama: Gratis, tanpa API key
+    - "rss" # RSS feeds berita Indonesia
+    - "reddit" # Opsional: Butuh API key
+
   # Wikipedia settings
   wikipedia:
-    language: "id"   # Wikipedia Indonesia
+    language: "id" # Wikipedia Indonesia
     min_content_length: 100
-  
+
   # RSS Feeds (gratis, tanpa API key)
   rss_feeds:
     sains:
@@ -54,7 +55,7 @@ scraper:
       - "https://www.liputan6.com/feed/rss2?channel=tekno"
     umum:
       - "https://www.liputan6.com/feed/rss2"
-  
+
   # Reddit settings (OPSIONAL - butuh API key)
   subreddits:
     - "todayilearned"

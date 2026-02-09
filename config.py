@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     APP_VERSION: str = "1.0.0"
 
     # External API Keys (dari .env)
-    PEXELS_API_KEY: str = Field(default="", alias="PEXEL_API_KEY")
+    PEXELS_API_KEY: str = ""
     PIXABAY_API_KEY: str = ""
     REDDIT_CLIENT_ID: str = ""
     REDDIT_CLIENT_SECRET: str = ""
@@ -149,6 +149,11 @@ class AppConfig:
     @property
     def tts_voice_id(self) -> str:
         return self.yaml.tts.get("voice_id", "id-ID-ArdiNeural")
+    
+    @property
+    def kaggle_voice(self) -> str:
+        """Voice untuk Kaggle Edge TTS server (ardi atau gadis)"""
+        return self.yaml.tts.get("kaggle_voice", "ardi")
     
     @property
     def xtts_model_path(self) -> str:

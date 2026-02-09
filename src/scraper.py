@@ -274,6 +274,20 @@ class ContentMiner:
         
         return results
     
+    async def search_wikipedia(self, query: str) -> Optional[RawContent]:
+        """
+        Search Wikipedia by query and return the best result.
+        This is a public method for API endpoint.
+        """
+        try:
+            results = await self._fetch_wikipedia_search(query)
+            if results:
+                return results[0]  # Return the first/best result
+            return None
+        except Exception as e:
+            print(f"⚠️ search_wikipedia error: {e}")
+            return None
+    
     async def _fetch_wikipedia_page(self, title: str) -> Optional[RawContent]:
         """Fetch halaman Wikipedia spesifik"""
         try:
@@ -755,15 +769,15 @@ class ContentMiner:
     
     def format_for_llm(self, content: RawContent) -> str:
         """Format konten untuk input ke LLM"""
-        text = f"Judul: {content.title}\n\n"
+        # PENTING: Jangan gunakan label "Judul:", "Konten:", dll
+        # karena LLM akan memasukkannya ke narasi video!
+        # Cukup berikan konten langsung tanpa label
         
         if content.body:
             body = content.body[:2000] if len(content.body) > 2000 else content.body
-            text += f"Konten:\n{body}"
+            return body
         
-        text += f"\n\nSumber: {content.source}"
-        
-        return text
+        return content.title
 
 
 # Singleton instance

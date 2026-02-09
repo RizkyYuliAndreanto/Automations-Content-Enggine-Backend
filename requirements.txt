@@ -17,20 +17,26 @@ trafilatura==1.6.3          # Web scraping (clean text extraction)
 beautifulsoup4==4.12.3      # HTML parsing fallback
 lxml_html_clean             # Required by trafilatura
 youtube-transcript-api==0.6.2  # YouTube transcript/subtitle scraping (GRATIS)
-yt-dlp                      # YouTube video info extraction
+yt-dlp                      # YouTube video downloader (replaces youtube-dl)
 
 # --- LLM ---
 # ollama dijalankan terpisah (ollama serve)
 
 # --- TTS ---
 edge-tts==6.1.9             # Microsoft Edge TTS (free, cloud-based)
+pydub==0.25.1               # Audio conversion (MP3 to WAV)
+ffmpeg-python==0.2.0        # FFmpeg wrapper for audio conversion
 
 # --- Media Processing ---
 moviepy==1.0.3              # Video editing wrapper
 imageio-ffmpeg==0.4.9       # FFmpeg binary
 imageio==2.34.0             # Image I/O
-pillow==10.2.0              # Image processing
+pillow==9.5.0               # Image processing (compatible with MoviePy 1.0.3)
 numpy==1.26.3               # Numerical operations
+
+# --- Web API ---
+fastapi==0.109.0            # REST API framework
+uvicorn==0.27.0             # ASGI server
 
 # --- Utilities ---
 colorama==0.4.6             # Colored terminal output
